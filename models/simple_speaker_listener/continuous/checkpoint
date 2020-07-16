@@ -1,0 +1,2 @@
+model_checkpoint_path: "/home/laukik/more_repos/maddpg/models/simple_speaker_listener/continuous/models"
+all_model_checkpoint_paths: "/home/laukik/more_repos/maddpg/models/simple_speaker_listener/continuous/models"

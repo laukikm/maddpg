@@ -237,6 +237,7 @@ def save_state(fname, saver=None):
     if saver is None:
         saver = tf.train.Saver()
     saver.save(get_session(), fname)
+    print('Saved models at'+fname)
     return saver
 
 # ================================================================

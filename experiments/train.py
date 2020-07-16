@@ -24,12 +24,12 @@ def parse_args():
     parser.add_argument("--num-units", type=int, default=64, help="number of units in the mlp")
     # Checkpointing
     parser.add_argument("--exp-name", type=str, default=None, help="name of the experiment")
-    parser.add_argument("--save-dir", type=str, default="/tmp/policy/", help="directory in which training state and model should be saved")
+    parser.add_argument("--save-dir", type=str, default="/home/laukik/more_repos/maddpg/models/", help="directory in which training state and model should be saved")
     parser.add_argument("--save-rate", type=int, default=1000, help="save model once every time this many episodes are completed")
     parser.add_argument("--load-dir", type=str, default="", help="directory in which training state and model are loaded")
     # Evaluation
-    parser.add_argument("--restore", action="store_true", default=False)
-    parser.add_argument("--display", action="store_true", default=False)
+    parser.add_argument("--restore", action="store_true", default=True)
+    parser.add_argument("--display", action="store_true", default=True)
     parser.add_argument("--benchmark", action="store_true", default=False)
     parser.add_argument("--benchmark-iters", type=int, default=100000, help="number of iterations run for benchmarking")
     parser.add_argument("--benchmark-dir", type=str, default="./benchmark_files/", help="directory where benchmark data is saved")
@@ -60,10 +60,11 @@ def make_env(scenario_name, arglist, benchmark=False):
         env = MultiAgentEnv(world, scenario.reset_world, scenario.reward, scenario.observation)
     return env
 
-def get_trainers(env, num_adversaries, obs_shape_n, arglist):
+def get_trainers(env, num_adversaries, obs_shape_n, arglist): #obs_shape_n is a set of all agents' observations (See line 93)
     trainers = []
     model = mlp_model
     trainer = MADDPGAgentTrainer
+    
     for i in range(num_adversaries):
         trainers.append(trainer(
             "agent_%d" % i, model, obs_shape_n, env.action_space, i, arglist,
@@ -73,6 +74,18 @@ def get_trainers(env, num_adversaries, obs_shape_n, arglist):
             "agent_%d" % i, model, obs_shape_n, env.action_space, i, arglist,
             local_q_func=(arglist.good_policy=='ddpg')))
     return trainers
+
+#Written by me
+def get_one_hot(actions):
+	index=np.argmax(actions)
+
+	for i in range(len(actions)):
+		if(i==index):
+			actions[i]=1
+		else:
+			actions[i]=0
+	return actions
+
 
 
 def train(arglist):
@@ -89,11 +102,23 @@ def train(arglist):
         U.initialize()
 
         # Load previous results, if necessary
-        if arglist.load_dir == "":
+        arglist.save_dir+=arglist.scenario+'/'
+
+        discrete=False #Continuous performs better than discrete
+        if(discrete):
+            arglist.save_dir+='discrete/'
+        else:
+            arglist.save_dir+='continuous/'
+
+        arglist.save_dir+='models'
+
+        
+        if arglist.load_dir == "":   #This loads models only if the location is found
             arglist.load_dir = arglist.save_dir
         if arglist.display or arglist.restore or arglist.benchmark:
-            print('Loading previous state...')
+            print('Loading previous state from ...'+arglist.load_dir)
             U.load_state(arglist.load_dir)
+		
 
         episode_rewards = [0.0]  # sum of rewards for all agents
         agent_rewards = [[0.0] for _ in range(env.n)]  # individual agent reward
@@ -110,6 +135,12 @@ def train(arglist):
         while True:
             # get action
             action_n = [agent.action(obs) for agent, obs in zip(trainers,obs_n)]
+
+            #Added by me
+            if(discrete):
+                action_n[0]=get_one_hot(action_n[0])
+
+            ##print(obs_n)
             # environment step
             new_obs_n, rew_n, done_n, info_n = env.step(action_n)
             episode_step += 1
@@ -117,7 +148,7 @@ def train(arglist):
             terminal = (episode_step >= arglist.max_episode_len)
             # collect experience
             for i, agent in enumerate(trainers):
-                agent.experience(obs_n[i], action_n[i], rew_n[i], new_obs_n[i], done_n[i], terminal)
+                agent.experience(obs_n[i], action_n[i], rew_n[i], new_obs_n[i], done_n[i], terminal) #Stores in the replay buffer
             obs_n = new_obs_n
 
             for i, rew in enumerate(rew_n):
@@ -151,18 +182,20 @@ def train(arglist):
             if arglist.display:
                 time.sleep(0.1)
                 env.render()
-                continue
+                
 
             # update all trainers, if not in display or benchmark mode
             loss = None
             for agent in trainers:
-                agent.preupdate()
+                agent.preupdate() 
             for agent in trainers:
                 loss = agent.update(trainers, train_step)
 
             # save model, display training output
             if terminal and (len(episode_rewards) % arglist.save_rate == 0):
-                U.save_state(arglist.save_dir, saver=saver)
+                
+                U.save_state(arglist.save_dir, saver=saver) #This saves all tf objects in the specified directory
+
                 # print statement depends on whether or not there are adversaries
                 if num_adversaries == 0:
                     print("steps: {}, episodes: {}, mean episode reward: {}, time: {}".format(

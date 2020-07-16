@@ -28,7 +28,7 @@ def make_update_exp(vals, target_vals):
 def p_train(make_obs_ph_n, act_space_n, p_index, p_func, q_func, optimizer, grad_norm_clipping=None, local_q_func=False, num_units=64, scope="trainer", reuse=None):
     with tf.variable_scope(scope, reuse=reuse):
         # create distribtuions
-        act_pdtype_n = [make_pdtype(act_space) for act_space in act_space_n]
+        act_pdtype_n = [make_pdtype(act_space) for act_space in act_space_n] #Make probability distribution
 
         # set up placeholders
         obs_ph_n = make_obs_ph_n
@@ -36,7 +36,7 @@ def p_train(make_obs_ph_n, act_space_n, p_index, p_func, q_func, optimizer, grad
 
         p_input = obs_ph_n[p_index]
 
-        p = p_func(p_input, int(act_pdtype_n[p_index].param_shape()[0]), scope="p_func", num_units=num_units)
+        p = p_func(p_input, int(act_pdtype_n[p_index].param_shape()[0]), scope="p_func", num_units=num_units) #This is an object of type MLP Model, the arguments are inputs and outputs to the NN.
         p_func_vars = U.scope_vars(U.absolute_scope_name("p_func"))
 
         # wrap parameters in distribution
@@ -48,17 +48,18 @@ def p_train(make_obs_ph_n, act_space_n, p_index, p_func, q_func, optimizer, grad
         act_input_n = act_ph_n + []
         act_input_n[p_index] = act_pd.sample()
         q_input = tf.concat(obs_ph_n + act_input_n, 1)
+
         if local_q_func:
-            q_input = tf.concat([obs_ph_n[p_index], act_input_n[p_index]], 1)
+            q_input = tf.concat([obs_ph_n[p_index], act_input_n[p_index]], 1) #This is the critic
         q = q_func(q_input, 1, scope="q_func", reuse=True, num_units=num_units)[:,0]
         pg_loss = -tf.reduce_mean(q)
 
-        loss = pg_loss + p_reg * 1e-3
+        loss = pg_loss + p_reg * 1e-3 #p_reg is the regularization
 
         optimize_expr = U.minimize_and_clip(optimizer, loss, p_func_vars, grad_norm_clipping)
 
         # Create callable functions
-        train = U.function(inputs=obs_ph_n + act_ph_n, outputs=loss, updates=[optimize_expr])
+        train = U.function(inputs=obs_ph_n + act_ph_n, outputs=loss, updates=[optimize_expr]) 
         act = U.function(inputs=[obs_ph_n[p_index]], outputs=act_sample)
         p_values = U.function([obs_ph_n[p_index]], p)
 
@@ -69,7 +70,7 @@ def p_train(make_obs_ph_n, act_space_n, p_index, p_func, q_func, optimizer, grad
 
         target_act_sample = act_pdtype_n[p_index].pdfromflat(target_p).sample()
         target_act = U.function(inputs=[obs_ph_n[p_index]], outputs=target_act_sample)
-
+        
         return act, train, update_target_p, {'p_values': p_values, 'target_act': target_act}
 
 def q_train(make_obs_ph_n, act_space_n, q_index, q_func, optimizer, grad_norm_clipping=None, local_q_func=False, scope="trainer", reuse=None, num_units=64):
@@ -80,15 +81,17 @@ def q_train(make_obs_ph_n, act_space_n, q_index, q_func, optimizer, grad_norm_cl
         # set up placeholders
         obs_ph_n = make_obs_ph_n
         act_ph_n = [act_pdtype_n[i].sample_placeholder([None], name="action"+str(i)) for i in range(len(act_space_n))]
+
         target_ph = tf.placeholder(tf.float32, [None], name="target")
 
         q_input = tf.concat(obs_ph_n + act_ph_n, 1)
         if local_q_func:
-            q_input = tf.concat([obs_ph_n[q_index], act_ph_n[q_index]], 1)
-        q = q_func(q_input, 1, scope="q_func", num_units=num_units)[:,0]
+            q_input = tf.concat([obs_ph_n[q_index], act_ph_n[q_index]], 1) 
+
+        q = q_func(q_input, 1, scope="q_func", num_units=num_units)[:,0] #This is an MLP Model
         q_func_vars = U.scope_vars(U.absolute_scope_name("q_func"))
 
-        q_loss = tf.reduce_mean(tf.square(q - target_ph))
+        q_loss = tf.reduce_mean(tf.square(q - target_ph)) #This placeholder is assigned data later (line 103)
 
         # viscosity solution to Bellman differential equation in place of an initial condition
         q_reg = tf.reduce_mean(tf.square(q))
@@ -96,7 +99,7 @@ def q_train(make_obs_ph_n, act_space_n, q_index, q_func, optimizer, grad_norm_cl
 
         optimize_expr = U.minimize_and_clip(optimizer, loss, q_func_vars, grad_norm_clipping)
 
-        # Create callable functions
+        # Create callable functions (Used when you have placeholders)
         train = U.function(inputs=obs_ph_n + act_ph_n + [target_ph], outputs=loss, updates=[optimize_expr])
         q_values = U.function(obs_ph_n + act_ph_n, q)
 
@@ -131,7 +134,7 @@ class MADDPGAgentTrainer(AgentTrainer):
             local_q_func=local_q_func,
             num_units=args.num_units
         )
-        self.act, self.p_train, self.p_update, self.p_debug = p_train(
+        self.act, self.p_train, self.p_update, self.p_debug = p_train(   #This is the actor network
             scope=self.name,
             make_obs_ph_n=obs_ph_n,
             act_space_n=act_space_n,
@@ -149,7 +152,7 @@ class MADDPGAgentTrainer(AgentTrainer):
         self.replay_sample_index = None
 
     def action(self, obs):
-        return self.act(obs[None])[0]
+        return self.act(obs[None])[0] #This is the actor output that uses only agent observations
 
     def experience(self, obs, act, rew, new_obs, done, terminal):
         # Store transition in the replay buffer.
